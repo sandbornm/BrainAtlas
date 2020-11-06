@@ -1,0 +1,3 @@
+/home/sandbom/itkAntsAssignment/Setup-build/CMakeFiles/rebuild_cache.dir
+/home/sandbom/itkAntsAssignment/Setup-build/CMakeFiles/edit_cache.dir
+/home/sandbom/itkAntsAssignment/Setup-build/CMakeFiles/Setup.dir
