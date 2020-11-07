@@ -11,27 +11,21 @@
 #include "itkMeanSquaresImageToImageMetric.h"
 #include "itkDemonsRegistrationFilter.h"
 #include "itkCommand.h"
+#include "itkDivideImageFilter.h"
 #include <ctime>
-#include <cstdlib>
-
-#include "itkDemonsRegistrationFilter.h"
-#include "itkHistogramMatchingFilter.h"
-#include "itkCastImageFilter.h"
-#include "itkDisplacementFieldTransform.h"
-
 
 
 // constants
 const unsigned int nDims = 3 ;
 const unsigned int imageCount = 21 ;
-const std::string PATH = "/home/sandbom/itkants/KKI2009-ALL-MPRAGE/" ;
+const std::string PATH = "/home/sandbom/KKI2009-ALL-MPRAGE/" ;
 
 // set up types
 typedef itk::Image < double, nDims > ImageType ;
 typedef itk::ImageFileReader < ImageType > ImageReaderType ; 
 typedef itk::ImageFileWriter < ImageType > ImageWriterType ;
 typedef itk::NaryAddImageFilter < ImageType, ImageType > AddFilterType ;
-typedef itk::ShiftScaleImageFilter < ImageType, ImageType  > ScaleFilterType ;
+typedef itk::DivideImageFilter < ImageType, ImageType, ImageType > DivideFilterType ;
 typedef itk::MultiResolutionImageRegistrationMethod < ImageType, ImageType > RegistrationMethodType ;
 typedef itk::AffineTransform < double, nDims > AffineTransformType ;
 typedef itk::RegularStepGradientDescentOptimizer OptimizerType ;
@@ -59,7 +53,7 @@ public:
 	void Execute(const itk::Object * caller, const itk::EventObject & event)
 	{
 		OptimizerPointerType optimizer = dynamic_cast < OptimizerPointerType > ( caller ) ;
-		std::cout << optimizer->GetCurrentIteration() << " " << optimizer->GetValue() << std::endl;
+		std::cout << " iteration: " << optimizer->GetCurrentIteration() << " value: " << optimizer->GetValue() << std::endl;
 	}
 };
 
@@ -81,6 +75,8 @@ public:
 	{
 		 RegistrationPointerType registration = dynamic_cast < RegistrationPointerType > ( caller ) ;
 		 std::cout << "Level: " << registration->GetCurrentLevel () << std::endl ;
+		 // get optimizer to output images at iteration i 
+
 		 OptimizerPointerType optimizer = dynamic_cast < OptimizerPointerType > ( registration->GetModifiableOptimizer() ) ;
 		 optimizer->SetMaximumStepLength ( optimizer->GetMaximumStepLength() * 0.5 ) ;
 	} 	
@@ -94,30 +90,57 @@ public:
 
 int main(int argc, char * argv[])
 {
+	// if (argc < 4)
+	// {
+	// 	// ./Registration fixedImage lower upper
+	// 	std::cout << "missing parameters! usage: ./Registration [-fixedImage=file] [-lower=num] [-upper=num]" << std::endl;
+	// 	std::cout << "(includes endpoints) 0 <= lower <= numberOfImages, lower < upper <= numberOfImages"
+	// } else if (argc > 4) 
+	// {
+	// 	std::cout << "too many parameters! usage: ./Registration [-fixedImage=file] [-lower=num] [-upper=num]" << std::endl;
+	// 	std::cout << " 0 <= lower <= numberOfImages, lower < upper <= numberOfImages"
+	// }
 
-   unsigned int maxIterations = 200;
-   std::string pathToRandomFixedImage = "../randomFixedImage12.nii.gz";
+	// std::string fixedImageFile = argv[1];
+	// int lower = argv[2];
+	// int upper = argv[3];
+
+   std::string fixedImageFile = "KKI2009-12-MPRAGE.nii.gz"; 
+   
    ImageReaderType::Pointer fixedReader = ImageReaderType::New();
-   // the index associated with the randomFixedImage 
-   int randSubject = 11;
-    
-
+   fixedReader->SetFileName(fixedImageFile);
+   fixedReader->Update();
    // another add filter to add affinely transformed images
    AddFilterType::Pointer tAddFilter = AddFilterType::New() ; 	
-   // store affinely registered images for later
-   ImageType::Pointer tImages[imageCount];
-   // add fixedImage to tImages
-   tImages[randSubject] = fixedReader->GetOutput();	
 
-	for (int i = 0; i < imageCount; ++i)
+   std::string fixedFileNum = fixedImageFile.substr(8,2)
+   int ffn = std::stoi(fixedFileNum);
+   // add fixedImage to tImages
+	std::string pre = "KKI2009-" ;
+	std::string post = "-MPRAGE.nii.gz" ;
+	for (int i = 1; i <= 21; ++i)
 	{
-	if ( i != randSubject ) {
-		std::string fname = readers[i]->GetFileName() ; 
-		std::cout << "now registering " << fname << std::endl;  
-		// gather registration materials 
+	if ( i != ffn ) {
+
 		ImageReaderType::Pointer movingReader = ImageReaderType::New();
+		// filename setup
+		std::string is = "";
+		std::stringstream o;
+		o << i;
+		std::string istr = o.str();
+		if (i < 10)
+		{
+			is = "0" + istr;
+		} else
+		{
+			is = istr;
+		}
+		is = pre + is;
+		std::string fname = PATH + is + post;
 		movingReader->SetFileName( fname );
 		movingReader->Update() ;
+		std::cout << "now registering " << fname << std::endl;  
+		// gather registration materials 		
 		RegistrationMethodType::Pointer registration = RegistrationMethodType::New(); 
 		AffineTransformType::Pointer transform = AffineTransformType::New();
 		MetricType::Pointer metric = MetricType::New() ;
@@ -133,7 +156,7 @@ int main(int argc, char * argv[])
 		registration->SetTransform( transform ) ;
 		// parameters
 		optimizer->MinimizeOn() ;
-		optimizer->SetNumberOfIterations ( 50 ) ;		
+		optimizer->SetNumberOfIterations ( 100 ) ;		
 		optimizer->SetMinimumStepLength( 0 ) ;
 		optimizer->SetMaximumStepLength( 0.0125 ) ;
 		transform->SetIdentity() ;
@@ -147,7 +170,6 @@ int main(int argc, char * argv[])
 		RegistrationIterationCallback::Pointer regCallback = RegistrationIterationCallback::New();
 		registration->AddObserver(itk::IterationEvent(), regCallback);
 	
-		registration->SetNumberOfLevels( 3 ) ;
 		registration->SetFixedImageRegion ( fixedReader->GetOutput()->GetLargestPossibleRegion() ) ;
 	
 		// try to do registration
@@ -167,117 +189,37 @@ int main(int argc, char * argv[])
 		resampleFilter->SetTransform ( transform ) ;
 		resampleFilter->SetReferenceImage( fixedReader->GetOutput()) ;
 		resampleFilter->UseReferenceImageOn() ;		
-	        resampleFilter->Update() ; 
+	    resampleFilter->Update() ; 
 		
+		// add image for affine template calculation
 		tAddFilter->SetInput(i, resampleFilter->GetOutput());
 		// store transformed image for deformable registration
-		tImages[i] = resampleFilter->GetOutput();
+		ImageWriterType::Pointer result = ImageReaderType::New();
+		std::string resname = "af" + fname;
+		result->SetFileName(resname);
+		result->SetInput( resampleFilter->GetOutput() );
+		result->Update();
+		std::cout << "wrote result to " << std::to_string(resname) << resname;
 
 		} // end if 
 	} // end for
 
-// average the aff registered images and the fixed image = affine template
 	tAddFilter->Update() ; 
-	DivideFilterType::Pointer aDivFilter = DivideFilterType::New() ;
-	aDivFilter->SetInput( tAddFilter->GetOutput()) ; 
-	aDivFilter->SetConstant(imageCount) ; 
-	aDivFilter->Update() ;
-// write affine template
+
+	DivideFilterType::Pointer divFilter = DivideFilterType::New();
+	divFilter->SetInput(tAddFilter->GetOutput())
+	divFilter->SetConstant(imageCount);
+	divFilter->Update();
+// write intermediate result for affine template
+	//std::string atname = PATH + "a" + std::to_string(lower) + std::to_string(upper) + "intermediate.nii.gz";
 	std::string atname = PATH + "affineTemplate.nii.gz";
 	ImageWriterType::Pointer atWriter = ImageWriterType::New() ;
 	atWriter->SetFileName( atname ) ;
-	atWriter->SetInput( aDivFilter->GetOutput() ) ;
+	atWriter->SetInput( divFilter->GetOutput) ;
 	atWriter->Update();
+	std::cout << "wrote affine template to file " << atname;
+	// std::to_string(lower) " to " << std::to_string(upper) "to 
 
-// deformably register images to the affine template
-// affine template is now fixed image and the tImages are the moving images
-// go through all of the images in tImages
-
-// yet another add filter to add deformably transformed images
-	AddFilterType::Pointer dAddFilter = AddFilterType::New() ; 	
-	// store affinely registered images for later
-	ImageType::Pointer dImages[imageCount];
-	//set fixed image as affine template
-	ImageReaderType::Pointer fixedReader = ImageReaderType::New();
-	fixedReader->SetFileName(atname);
-	fixedReader->Update();
-
-// based on https://itk.org/Doxygen/html/Examples_2RegistrationITKv4_2DeformableRegistration2_8cxx-example.html
-	// demons deformable registration v4
-	typedef itk::Image < float, nDims > InternalImageType;
-	typedef itk::CastImageFilter< ImageType, InternalImageType > ImageCasterType;
-	typedef itk::HistogramMatchingImageFilter <InternalImageType, InternalImageType> MatchingFilterType;
-
-	typedef itk::Vector<float, nDims> VectorPixelType;
-	typedef itk::Image<VectorPixelType, nDims> DisplacementFieldType;
-	typedef itk::DemonsRegistrationFilter<InternalImageType, InternalImageType, DisplacementFieldType> RegistrationFilterType;
-	typedef itk::Image<unsigned char, nDims> OutputImageType;
-	typedef itk::ResampleImageFilter<ImageType, ImageType, double, float> WarperType;
-	typedef itk::DisplacementFieldTransform<float, nDims> DisplacementFieldTransformType;
-	
-	ImageCasterType::Pointer fixedImageCaster = ImageCasterType::New();
-	fixedImageCaster->SetInput( fixedReader->GetOutput() );
-	// go over all tImages and register to fixedImage (affineTemplate)
-	// add results to dImages to then be averaged for the deformable atlas
-	for (int i = 0; i < imageCount; ++i)
-	{
-		// get ith moving image and cast set up for demons
-		std::string fnamei = readers[i]->GetFileName() ; 
-		std::cout << "deformably registering " << fnamei << std::endl;
-		ImageReaderType::Pointer movingReader = ImageReaderType::New();
-		movingReader->SetFileName( fnamei );
-		movingReader->Update();
-	        ImageCasterType::Pointer movingImageCaster = ImageCasterType::New();
-		movingImageCaster->SetInput(movingReader->GetOutput());
-		
-		MatchingFilterType::Pointer matcher = MatchingImageFilterType:New();
-		matcher->SetInput(movingImageCaster->GetOutput());
-		matcher->SetReferenceImage(fixedImageCaster->GetOutput());
-		matcher->SetNumberOfHistogramLevels(1024);
-		matcher->SetNumberOfMatchPoints(7);
-		matcher->ThresholdAtMeanIntensityOn();
-		RegistrationFilterType::Pointer dregistration = RegistrationFilterType::New();
-		// dont forget iteration update callback
-
-		// set up demons
-		dregistration->SetFixedImage(fixedImageCaster->GetOutput());
-		dregistration->SetMovingImage(matcher->GetOutput());
-		dregistration->SetNumberOfIterations(50);
-		dregistration->SetStandardDeviations(1.0);
-		
-		// do registration
-		dregistration->Update();
-
-		// do transformation
-		WarperType::Pointer warper = WarperType::New();
-		warper->SetInput(movingImageReader->GetOutput());
-		warper->UseReferenceImageOn();
-		warper->SetReferenceImage(fixedImageReader->GetOutput());
-		
-		DisplacementFieldTransformType::Pointer transform =  DisplacementFieldTransformType::New();
-		transform->SetDisplacementField(dregistration->GetOutput());
-		warper->SetTransform(transform);
-		
-		dAddFilter->SetInput(warper->GetOutput());
-
-
-
-	}
-
-
-
-
-
-
-
-
-// set up deformable registration
-
-//for (int i = 1; i <= imageCount; ++i)
-
-
-
-
- return 0;
+// done with affine registration.
+return 0;
 }
-
