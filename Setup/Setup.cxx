@@ -1,17 +1,16 @@
+#include <iostream>
+#include <string>
+#include <cstdlib>
+#include <sstream>
 #include "itkImage.h"
 #include "itkImageFileReader.h"
 #include "itkImageFileWriter.h"
 #include "itkDivideImageFilter.h"
 #include "itkNaryAddImageFilter.h"
-#include <string>
-#include <sstream>
-#include <ctime>
-#include <cstdlib>
 
 // constants
 const unsigned int nDims = 3 ;
 const unsigned int imageCount = 21 ;
-const std::string PATH = "../KKI2009-ALL-MPRAGE/" ;
 
 // set up types
 typedef itk::Image < double, nDims > ImageType ;
@@ -22,63 +21,104 @@ typedef itk::DivideImageFilter < ImageType, ImageType, ImageType  > DivideFilter
 
 int main(int argc, char * argv[])
 {
-	 // array of readers and file paths
-	 ImageReaderType::Pointer readers[imageCount];
-	 std::string pre = "KKI2009-" ;
-	 std::string post = "-MPRAGE.nii.gz" ;
-	 // initialize readers - start at 1 for image 01 and add images to reader array
-	 // so the index for the random fixed image can be used to access the reader array later
-	 AddFilterType::Pointer addFilter = AddFilterType::New();
-	 std::cout << "loading images..." << std::endl;
-	 for (int i = 1; i <= imageCount; i++)
-	 {
-		// filename setup
-		std::string is = "";
-		std::stringstream o;
-		o << i;
-		std::string istr = o.str();
-		if (i < 10)
-		{
-			is = "0" + istr;
-		} else
-		{
-			is = istr;
-		}
-		readers[i-1] = ImageReaderType::New();
-		readers[i-1]->SetFileName(PATH + pre + is + post);
-		readers[i-1]->Update();
-		addFilter->SetInput(i-1, readers[i-1]->GetOutput());
-	     }//end for
+	// assume parameters are expected types - # args varies
+	if (argc < 2)
+       	{
+		// example ./Setup i -> get initial template of 21 KKI2009-XX-MPRAGE.nii.gz
+		// example ./Setup a 3 21 file1.nii.gz file2.nii.gz file3.nii.gz --> get affine template made of (file1 + file2 + file3) / 21
+		std::cout << "check parameters! usage: ./Setup [-templateType={i, a, d}] [-numImages=num] [-constant=num] [-filenames= {numImages} strings]" << std::endl;
+		std::cout << "example ./Setup a 3 21 file1.nii.gz file2.nii.gz file3.nii.gz" << std::endl;
+		exit(EXIT_FAILURE);
+	}
 
-	// from https://discourse.itk.org/t/beginner-in-itk-averaging-image/2328/4
-	// all 21 images added together
-  	addFilter->Update();
-	// divide by imageCount
-	DivideFilterType::Pointer divFilter = DivideFilterType::New();
-	divFilter->SetInput(addFilter->GetOutput());
-	divFilter->SetConstant( imageCount );
-	divFilter->Update();
-	// write initial template
-	std::string tname = "initialTemplate.nii.gz";
-	ImageWriterType::Pointer writer = ImageWriterType::New();
-	writer->SetFileName( tname );
-	writer->SetInput( divFilter->GetOutput());
-	writer->Update();
-	std::cout << "wrote initialTemplate " << tname << std::endl; 
-	// random subject as fixed image
-	srand((unsigned int) time(NULL)); // seed rand with current time
-	int randSubject = rand() % imageCount; // rand int in range 0-20
-	std::cout << "random subject is index: " << randSubject << std::endl;
-	// write to a new image to save time later
-	ImageWriterType::Pointer writer2 = ImageWriterType::New();
-	std::stringstream r;
-	r << randSubject + 1;
-	std::string rfname = "randomFixedImage" + r.str() + ".nii.gz";
-	writer2->SetFileName( rfname );
-	writer2->SetInput( readers[randSubject]->GetOutput());
-	writer2->Update();
-	std::cout << "wrote random subject " +  r.str() + " to " +  tname << std::endl; 
-	// set up done, have initialTemplate and randomFixedImage
-	return 0;
+	// assume necessary images are in the build directory 
+	// i/a/d = get initial/affine/deformable template/template/atlas	
+	std::string templateType = argv[1];
+
+	if (templateType == "i") {
+		// make initial template
+		AddFilterType::Pointer addFilter = AddFilterType::New();
+		std::cout << "loading images for initial template..." << std::endl;
+		// adapted from https://discourse.itk.org/t/beginner-in-itk-averaging-image/2328/4
+		for (int i = 1; i <= imageCount; i++)
+	 	{
+			// filename setup
+			std::string is = "";
+			std::stringstream o;
+			o << i;
+			std::string istr = o.str();
+			if (i < 10)
+			{
+				is = "0" + istr;
+			} else
+			{
+				is = istr;
+			}
+			std::string pre = "KKI2009-";
+			std::string post = "-MPRAGE.nii.gz";
+			ImageReaderType::Pointer reader = ImageReaderType::New();
+			reader->SetFileName(pre + is + post);
+			reader->Update();
+			addFilter->SetInput(i-1, reader->GetOutput());
+			std::cout << "added image " << pre + is + post << std::endl;
+		} // end for
+		// all 21 images added together
+  		addFilter->Update();
+		// divide by imageCount
+		DivideFilterType::Pointer divFilter = DivideFilterType::New();
+		divFilter->SetInput(addFilter->GetOutput());
+		divFilter->SetConstant( imageCount );
+		divFilter->Update();
+	        // write image	
+		ImageWriterType::Pointer writer = ImageWriterType::New();
+		writer->SetFileName( "initialTemplate.nii.gz" );
+		writer->SetInput( divFilter->GetOutput());
+		writer->Update();
+		std::cout << "wrote initialTemplate.nii.gz " << std::endl; 
+	
+	} else if (templateType == "a" || templateType == "d") { // can be affine or deformable 
+		// the number of files to load
+		int numImages = atoi(argv[2]);
+		// the constant in the division 
+		int constant  = atoi(argv[3]);
+		if (templateType == "a"){
+			std::cout << "loading images for affine template..." << std::endl;
+		} else {
+			std::cout << "loading images for deformable atlas..." << std::endl;
+		}
+		// the files to divide
+		AddFilterType::Pointer addFilter = AddFilterType::New();
+		for (int j = 0; j < numImages; j++){	
+			std::string fname = argv[4+j];
+			ImageReaderType::Pointer reader = ImageReaderType::New();
+			reader->SetFileName( fname );
+			reader->Update();
+			addFilter->SetInput(j, reader->GetOutput());
+			std::cout << "added image " << fname << std::endl;
+		} // end for
+		addFilter->Update();
+		// divide by constant (may or may not be equal to numImages)
+		DivideFilterType::Pointer divFilter = DivideFilterType::New();
+		divFilter->SetInput(addFilter->GetOutput());
+		divFilter->SetConstant(constant);
+		divFilter->Update();
+		// write image
+		ImageWriterType::Pointer writer = ImageWriterType::New();
+		if (templateType == "a") { // affine template
+			writer->SetFileName("affineTemplate.nii.gz");
+		} else { // deformable template
+			writer->SetFileName("deformableTemplate.nii.gz");
+		}
+		writer->SetInput( divFilter->GetOutput());
+		writer->Update();
+		std::cout << "writing template..." << std::endl;
+		if (templateType == "a") {
+			std::cout << "wrote affineTemplate.nii.gz" << std::endl;
+		} else {
+			std::cout << "wrote deformableTemplate.nii.gz" << std::endl;
+		}
+	}
+std::cout << "done" << std::endl;
+return 0;
 }
 
