@@ -13,7 +13,6 @@
 #include "itkResampleImageFilter.h"
 #include "itkMeanSquaresImageToImageMetric.h"
 #include "itkNaryAddImageFilter.h"
-#include "itkDemonsRegistrationFilter.h"
 #include "itkCommand.h"
 #include "itkDivideImageFilter.h"
 
